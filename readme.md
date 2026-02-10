@@ -1,10 +1,13 @@
-```markdown
 # ESP32 Energy Counters Project
+
+> ⚠️ **Warning : Ce projet, dans sa version initiale, a été entièrement écrit et commenté par une IA. Il n’a jamais été testé sur le matériel. Utilisez-le à vos risques et périls !**
 
 ## Introduction
 
 Ce projet est conçu pour un **ESP32 WROOM** afin de mesurer et publier la consommation électrique via des compteurs à impulsions (Wh).  
 Le système lit des impulsions électriques provenant de jusqu'à **5 compteurs**, applique un anti-rebond, stocke les valeurs dans la mémoire NVS, et publie périodiquement les valeurs sur un **broker MQTT**.  
+
+Ce projet a été dans ça version initial entierement écrit et commenté par une IA... Jamais testé!!
 
 ### Cas d'utilisation
 
@@ -46,7 +49,7 @@ Le système lit des impulsions électriques provenant de jusqu'à **5 compteurs*
 - platformio.ini  (si PlatformIO utilisé)
 - README.md
 
-````
+
 
 ---
 
@@ -173,12 +176,3 @@ Exemple de payload publié sur MQTT :
 ## Licence
 
 Ce projet est sous licence MIT – libre pour modification et utilisation.
-
-```
-
----
-
-Si tu veux, je peux te générer **un lien direct pour télécharger ce fichier README.md prêt à mettre dans ton projet GitHub**, ou je peux te le convertir en **fichier téléchargeable `.md`** que tu pourras directement sauvegarder.  
-
-Veux‑tu que je fasse ça ?
-```

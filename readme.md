@@ -26,27 +26,25 @@ Le système lit des impulsions électriques provenant de jusqu'à **5 compteurs*
 
 ## Structure du projet
 
-```
-
-├── lib/
-│   ├── gpio_pulse/
-│   │   ├── gpio_pulse.c
-│   │   └── gpio_pulse.h
-│   ├── mqtt/
-│   │   ├── mqtt.c
-│   │   └── mqtt.h
-│   ├── storage/
-│   │   ├── storage.c
-│   │   └── storage.h
-│   ├── watchdog/
-│   │   ├── watchdog.c
-│   │   └── watchdog.h
-│   └── config/
-│       └── config.h
-├── src/
-│   └── main.c
-├── platformio.ini
-└── README.md
+- lib/
+  - gpio_pulse/
+    - gpio_pulse.c
+    - gpio_pulse.h
+  - mqtt/
+    - mqtt.c
+    - mqtt.h
+  - storage/
+    - storage.c
+    - storage.h
+  - watchdog/
+    - watchdog.c
+    - watchdog.h
+  - config/
+    - config.h
+- src/
+  - main.c
+- platformio.ini  (si PlatformIO utilisé)
+- README.md
 
 ````
 

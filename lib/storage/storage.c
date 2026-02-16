@@ -18,10 +18,10 @@ char mqtt_names[NB_COUNTERS][32] = {
 };
 uint8_t global_mode_config = 1; // Mode de configuration (0 = normal, 1 = AP)    
 
-char mqtt_Server[64]= {"mqtt://192.168.1.1:1883"} ;   // URI du broker MQTT
+char mqtt_Server[64]= {"192.168.1.1"} ;   // URI du broker MQTT
 char mqtt_user[32]= {0}  ;               // Nom d'utilisateur MQTT
 char mqtt_pass[32] = {0};                // Password MQTT
-
+char mqtt_port[8] = {"1883"}; // Port du server MQTT
 
 
 void nvs_init_and_load(void)
@@ -107,8 +107,17 @@ void nvs_init_and_load(void)
         size_t len_mqtt_serv = sizeof(mqtt_Server);
         size_t len_mqtt_user = sizeof(mqtt_user);
         size_t len_mqtt_pass = sizeof(mqtt_pass);
+        size_t len_mqtt_port = sizeof(mqtt_pass);
 
         ret = nvs_get_str(mqtt_handle, "mqtt_server", mqtt_Server, &len_mqtt_serv);
+        if (ret == ESP_ERR_NVS_NOT_FOUND) {
+            strcpy(mqtt_Server, "mqtt://192.168.1.1:1883");
+        } else if (ret != ESP_OK) {
+            ESP_LOGW(TAG, "Erreur lecture NVS mqtt_server");
+            strcpy(mqtt_Server, "mqtt://192.168.1.1:1883");
+        }
+
+        ret = nvs_get_str(mqtt_handle, "mqtt_port", mqtt_port, &len_mqtt_port);
         if (ret == ESP_ERR_NVS_NOT_FOUND) {
             strcpy(mqtt_Server, "mqtt://192.168.1.1:1883");
         } else if (ret != ESP_OK) {

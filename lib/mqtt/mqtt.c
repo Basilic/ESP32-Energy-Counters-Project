@@ -113,6 +113,8 @@ static void mqtt_event_handler(void *handler_args,
 
 
 
+
+
 /**
  * @brief Initialise le client MQTT et se connecte au broker.
  *
@@ -122,20 +124,22 @@ static void mqtt_event_handler(void *handler_args,
  *  - Enregistre l'event handler
  *  - Démarre le client
  */
-/**
- * @brief Initialise et démarre le client MQTT.
- *
- * Configure les paramètres de connexion (broker, login, mot de passe),
- * enregistre le gestionnaire d’événements,
- * puis démarre la connexion au broker.
- */
+
 void mqtt_init(void)
 {
+    char uri_server[256]; 
+    snprintf(uri_server, sizeof(uri_server), "mqtt://%s:%s", mqtt_Server, mqtt_port);
     esp_mqtt_client_config_t mqtt_cfg = {                         // Structure de configuration MQTT
-        .broker.address.uri = "MQTT_BROKER_URI",                  // URI du broker MQTT
-        .credentials.username = "MQTT_USERNAME",                  // Nom d'utilisateur MQTT
-        .credentials.authentication.password = "MQTT_PASSWORD",   // Mot de passe MQTT
+        .broker.address.uri = uri_server,                  // URI du broker MQTT
+        .credentials.username = NULL ,                      // Authentification par defaut sans User NULL
+        .credentials.authentication.password = NULL,        // PASSWORD NULL
     };
+    
+   if( (strlen(mqtt_user)>0) && (strlen(mqtt_pass)>0))   // Test si l'user et password du MQTT sont non null
+       {  
+        mqtt_cfg.credentials.username = mqtt_user;
+        mqtt_cfg.credentials.authentication.password = mqtt_pass;
+    }
 
     client = esp_mqtt_client_init(&mqtt_cfg);                     // Création du client MQTT
 

@@ -61,4 +61,5 @@ extern char wifi_pass[64];
 extern char mqtt_Server[64];
 extern char mqtt_user[32];
 extern char mqtt_pass[32];
+extern char mqtt_port[8];
 #endif // CONFIG_H

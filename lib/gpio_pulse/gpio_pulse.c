@@ -88,6 +88,7 @@ void task_boot_button(void *pv)
                         ESP_LOGE(TAG, "Impossible d'ouvrir NVS pour flag config mode");
                     }
                     vTaskDelay(pdMS_TO_TICKS(200));  // petit délai pour flush logs
+                    while(gpio_get_level(BOOT_BUTTON_GPIO)==0){}
                     esp_restart();                   // 🔥 reboot propre ESP32
                 }
             }

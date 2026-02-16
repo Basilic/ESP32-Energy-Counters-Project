@@ -28,12 +28,12 @@
 #define AP_PASS "123456789"
 
 // Section MQTT dans config.h
-#define MQTT_BROKER_URI  "mqtt://192.168.1.10"  // Adresse du broker MQTT
-#define MQTT_USERNAME    "user"                 // Nom d'utilisateur MQTT
-#define MQTT_PASSWORD    "pass"                 // Mot de passe MQTT
+//#define MQTT_BROKER_URI  "mqtt://192.168.1.10"  // Adresse du broker MQTT
+//#define MQTT_USERNAME    "user"                 // Nom d'utilisateur MQTT
+//#define MQTT_PASSWORD    "pass"                 // Mot de passe MQTT
 
 // Durée appui long bouton BOOT en millisecondes
-#define BOOT_LONG_PRESS_TIME_MS 5000
+#define BOOT_LONG_PRESS_TIME_MS 3000
 
 // GPIO du bouton BOOT (ESP32 DevKit = GPIO0)
 #define BOOT_BUTTON_GPIO GPIO_NUM_0

@@ -423,7 +423,7 @@ static esp_err_t save_post_handler(httpd_req_t *req)
         "<p>Rebooting...</p></body></html>");
 
     vTaskDelay(pdMS_TO_TICKS(1000));
-    esp_restart();
+    //esp_restart();
 
     return ESP_OK;
 }

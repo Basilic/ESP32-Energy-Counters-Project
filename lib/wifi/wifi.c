@@ -13,6 +13,10 @@
 #include "esp_system.h"
 #include "esp_netif.h"
 #include <string.h>
+#include <stdio.h>
+#include <ctype.h>
+#include <stdlib.h>
+
 
 //#define AP_SSID "ESP32_CONFIG"
 //#define AP_PASS "12345678"
@@ -79,66 +83,168 @@ void wifi_init(void)
 }
 
 
-/* ========================= WEB HANDLERS ========================= */
-
-static esp_err_t root_get_handler(httpd_req_t *req)
+//--- Échapper &, <, >, ", ' ---
+static void html_escape(const char *src, char *dst, size_t dst_size)
 {
-    httpd_resp_set_type(req, "text/html");
+    size_t o = 0;
+    for (size_t i = 0; src && src[i] != '\0' && o + 1 < dst_size; i++) {
+        const char *rep = NULL;
+        switch ((unsigned char)src[i]) {
+            case '&': rep = "&amp;";  break;
+            case '<': rep = "&lt;";   break;
+            case '>': rep = "&gt;";   break;
+            case '"': rep = "&quot;"; break;
+            case '\'':rep = "&#39;";  break;
+            default:
+                dst[o++] = src[i];
+                continue;
+        }
+        size_t rlen = strlen(rep);
+        if (o + rlen >= dst_size) break;
+        memcpy(dst + o, rep, rlen);
+        o += rlen;
+    }
+    dst[o] = '\0';
+}
 
-    httpd_resp_sendstr_chunk(req,
-        "<!DOCTYPE html>"
-        "<html>"
-        "<head>"
-        "<meta charset='UTF-8'>"
-        "<title>ESP32 Configuration</title>"
-        "</head>"
-        "<body>"
-        "<h2>Configuration ESP32</h2>"
-        "<form method='POST' action='/save'>"
-        "<h3>WiFi</h3>"
-        "SSID:<br>"
-        "<input type='text' name='ssid' value='");
+static esp_err_t config_get_handler(httpd_req_t *req)
+{
+    httpd_resp_set_type(req, "text/html; charset=UTF-8");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
 
-    httpd_resp_sendstr_chunk(req, wifi_ssid);
+    // Buffers échappés (tailles confortables)
+    char esc_ssid[128], esc_pass[128];
+    char esc_mqserv[256], esc_mquser[128], esc_mqpass[128];
+    char esc_name[128];
 
-    httpd_resp_sendstr_chunk(req,
-        "'><br><br>"
-        "Mot de passe:<br>"
-        "<input type='password' name='pass' value='");
+    html_escape(wifi_ssid,   esc_ssid,  sizeof esc_ssid);
+    html_escape(wifi_pass,   esc_pass,  sizeof esc_pass);
+    html_escape(mqtt_Server, esc_mqserv,sizeof esc_mqserv);
+    html_escape(mqtt_user,   esc_mquser,sizeof esc_mquser);
+    html_escape(mqtt_pass,   esc_mqpass,sizeof esc_mqpass);
 
-    httpd_resp_sendstr_chunk(req, wifi_pass);
+    // Macro pour checker les envois
+    #define SEND(S) do {                              \
+        esp_err_t __e = httpd_resp_sendstr_chunk(req, (S)); \
+        if (__e != ESP_OK) {                          \
+            ESP_LOGE("HTTP", "send failed (%d) at [%s]", __e, (S)); \
+            httpd_resp_sendstr_chunk(req, NULL);      \
+            return __e;                               \
+        }                                             \
+    } while(0)
 
-    httpd_resp_sendstr_chunk(req,
-        "'><br><br>"
-        "<h3>Compteurs</h3>");
+    // Buffer pour composer les lignes (jamais vide)
+    char line[512];
 
-    // ---- Boucle pour les 5 compteurs ----
-    for (int i = 0; i < NB_COUNTERS; i++)
-    {
-        char line[256];
+    // --- Envoi du header/page ---
+    SEND("<!DOCTYPE html>"
+         "<html><head>"
+         "<meta charset=\"UTF-8\">"
+         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+         "<title>ESP32 Configuration</title>"
+         "<style>"
+         "body{font-family:sans-serif;margin:16px;max-width:860px}"
+         "label{display:block;margin-top:10px}"
+         "input{width:100%;max-width:520px;padding:6px;margin:4px 0}"
+         "h2{margin-bottom:6px} h3{margin-top:18px}"
+         "button{padding:8px 14px;margin-top:12px}"
+         "</style>"
+         "</head><body>"
+         "<h2>Configuration ESP32</h2>"
+         "<form method=\"POST\" action=\"/save\">"
 
-        snprintf(line, sizeof(line),
-            "Compteur %d:<br>"
-            "<input type='number' name='c%d' value='%lu'> "
-            "Nom:<input type='text' name='m%d' value='%s'>"
-            "<br><br>",
-            i + 1,
-            i, (unsigned long)counters[i],
-            i, mqtt_names[i]);
+         "<h3>Wi‑Fi</h3>"
+         "<label>SSID</label>"
+    );
 
-        httpd_resp_sendstr_chunk(req, line);
+    // SSID
+    snprintf(line, sizeof line,
+             "<input type=\"text\" name=\"ssid\" value=\"%s\"><br><br>",
+             esc_ssid);
+    SEND(line);
+
+    // Pass Wi-Fi
+    SEND("<label>Mot de passe</label>");
+    snprintf(line, sizeof line,
+             "<input type=\"password\" name=\"pass\" value=\"%s\"><br><br>",
+             esc_pass);
+    SEND(line);
+
+    // --- MQTT ---
+    SEND("<h3>MQTT</h3>"
+         "<label>Serveur MQTT</label>");
+    snprintf(line, sizeof line,
+             "<input type=\"text\" name=\"mqtt_server\" "
+             "placeholder=\"mqtt://192.168.1.1:1883\" value=\"%s\"><br><br>",
+             esc_mqserv);
+    SEND(line);
+
+    SEND("<label>Utilisateur MQTT</label>");
+    snprintf(line, sizeof line,
+             "<input type=\"text\" name=\"mqtt_user\" value=\"%s\"><br><br>",
+             esc_mquser);
+    SEND(line);
+
+    SEND("<label>Mot de passe MQTT</label>");
+    snprintf(line, sizeof line,
+             "<input type=\"password\" name=\"mqtt_pass\" value=\"%s\"><br><br>",
+             esc_mqpass);
+    SEND(line);
+
+    // --- Compteurs ---
+    SEND("<h3>Compteurs</h3>");
+    for (int i = 0; i < NB_COUNTERS; i++) {
+        html_escape(mqtt_names[i], esc_name, sizeof esc_name);
+        snprintf(line, sizeof line,
+                 "Compteur %d:<br>"
+                 "<input type=\"number\" name=\"c%d\" value=\"%lu\"><br>"
+                 "Nom:<br>"
+                 "<input type=\"text\" name=\"m%d\" value=\"%s\"><br><br>",
+                 i + 1,
+                 i, (unsigned long)counters[i],
+                 i, esc_name);
+        SEND(line);
     }
 
-    httpd_resp_sendstr_chunk(req,
-        "<button type='submit'>Enregistrer</button>"
-        "</form>"
-        "</body>"
-        "</html>");
+    // Bouton + fin
+    SEND("<button type=\"submit\">Enregistrer</button>"
+         "</form></body></html>");
 
-    // IMPORTANT : fin de réponse
+    // Fin de la réponse chunked
     httpd_resp_sendstr_chunk(req, NULL);
-
     return ESP_OK;
+
+    #undef SEND
+}
+
+// Décode application/x-www-form-urlencoded (%, +)
+static void url_decode(const char *src, char *dst, size_t dst_size)
+{
+    size_t si = 0, di = 0;
+    if (!src || !dst || dst_size == 0) return;
+
+    while (src[si] != '\0' && di + 1 < dst_size)
+    {
+        if (src[si] == '%' &&
+            src[si+1] && src[si+2] &&
+            isxdigit((unsigned char)src[si+1]) &&
+            isxdigit((unsigned char)src[si+2]))
+        {
+            char hex[3] = { src[si+1], src[si+2], 0 };
+            dst[di++] = (char) strtol(hex, NULL, 16);
+            si += 3;
+        }
+        else if (src[si] == '+')
+        {
+            dst[di++] = ' ';
+            si++;
+        }
+        else
+        {
+            dst[di++] = src[si++];
+        }
+    }
+    dst[di] = '\0';
 }
 
 static esp_err_t save_post_handler(httpd_req_t *req)
@@ -148,7 +254,7 @@ static esp_err_t save_post_handler(httpd_req_t *req)
     int received = 0;
     int ret;
 
-    if (total_len >= sizeof(buf)) {
+    if (total_len >= (int)sizeof(buf)) {
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Payload too large");
         return ESP_FAIL;
     }
@@ -156,17 +262,19 @@ static esp_err_t save_post_handler(httpd_req_t *req)
     while (received < total_len) {
         ret = httpd_req_recv(req, buf + received, total_len - received);
         if (ret <= 0) {
+            // Optionnel: si ret == HTTPD_SOCK_ERR_TIMEOUT, on peut continuer
             return ESP_FAIL;
         }
         received += ret;
     }
 
     buf[received] = '\0';
-
-    ESP_LOGI("SAVE", "POST DATA: %s", buf);
+    ESP_LOGI("SAVE", "POST RAW: %s", buf);
 
     // -------- PARSING ROBUSTE --------
-    char *token = strtok(buf, "&");
+    // IMPORTANT: séparer sur "&" (et non sur "&amp;")
+    char *saveptr = NULL;
+    char *token = strtok_r(buf, "&", &saveptr);
 
     while (token != NULL)
     {
@@ -174,8 +282,12 @@ static esp_err_t save_post_handler(httpd_req_t *req)
         if (eq)
         {
             *eq = '\0';
-            char *key = token;
+            char *key   = token;
             char *value = eq + 1;
+
+            // Décoder la valeur encodée en x-www-form-urlencoded
+            char decoded[256];
+            url_decode(value, decoded, sizeof(decoded));
 
             // ---- Compteurs ----
             for (int i = 0; i < NB_COUNTERS; i++)
@@ -185,8 +297,13 @@ static esp_err_t save_post_handler(httpd_req_t *req)
 
                 if (strcmp(key, expected) == 0)
                 {
-                    counters[i] = strtoul(value, NULL, 10);
-                    ESP_LOGI("SAVE", "Counter %d = %lu", i, counters[i]);
+                    // Si vide -> 0
+                    if (decoded[0] == '\0') {
+                        counters[i] = 0;
+                    } else {
+                        counters[i] = strtoul(decoded, NULL, 10);
+                    }
+                    ESP_LOGI("SAVE", "Counter %d = %lu", i, (unsigned long)counters[i]);
                 }
             }
 
@@ -198,7 +315,7 @@ static esp_err_t save_post_handler(httpd_req_t *req)
 
                 if (strcmp(key, expected) == 0)
                 {
-                    strncpy(mqtt_names[i], value, sizeof(mqtt_names[i]) - 1);
+                    strncpy(mqtt_names[i], decoded, sizeof(mqtt_names[i]) - 1);
                     mqtt_names[i][sizeof(mqtt_names[i]) - 1] = '\0';
                     ESP_LOGI("SAVE", "MQTT name %d = %s", i, mqtt_names[i]);
                 }
@@ -207,28 +324,48 @@ static esp_err_t save_post_handler(httpd_req_t *req)
             // ---- WiFi ----
             if (strcmp(key, "ssid") == 0)
             {
-                strncpy(wifi_ssid, value, sizeof(wifi_ssid) - 1);
+                strncpy(wifi_ssid, decoded, sizeof(wifi_ssid) - 1);
                 wifi_ssid[sizeof(wifi_ssid) - 1] = '\0';
                 ESP_LOGI("SAVE", "SSID = %s", wifi_ssid);
             }
-
-            if (strcmp(key, "pass") == 0)
+            else if (strcmp(key, "pass") == 0)
             {
-                strncpy(wifi_pass, value, sizeof(wifi_pass) - 1);
+                strncpy(wifi_pass, decoded, sizeof(wifi_pass) - 1);
                 wifi_pass[sizeof(wifi_pass) - 1] = '\0';
-                ESP_LOGI("SAVE", "PASS updated");
+                ESP_LOGI("SAVE", "PASS updated (len=%u)", (unsigned)strlen(wifi_pass));
+            }
+            // ---- MQTT Server ----
+            else if (strcmp(key, "mqtt_server") == 0)
+            {
+                // Ici decoded contient déjà: "mqtt://192.168.1.1:1883"
+                strncpy(mqtt_Server, decoded, sizeof(mqtt_Server) - 1);
+                mqtt_Server[sizeof(mqtt_Server) - 1] = '\0';
+                ESP_LOGI("SAVE", "MQTT_SERVER = %s", mqtt_Server);
+            }
+            // ---- MQTT User ----
+            else if (strcmp(key, "mqtt_user") == 0)
+            {
+                strncpy(mqtt_user, decoded, sizeof(mqtt_user) - 1);
+                mqtt_user[sizeof(mqtt_user) - 1] = '\0';
+                ESP_LOGI("SAVE", "MQTT_USER = %s", mqtt_user);
+            }
+            // ---- MQTT Password ----
+            else if (strcmp(key, "mqtt_pass") == 0)
+            {
+                strncpy(mqtt_pass, decoded, sizeof(mqtt_pass) - 1);
+                mqtt_pass[sizeof(mqtt_pass) - 1] = '\0';
+                ESP_LOGI("SAVE", "MQTT_PASS updated (len=%u)", (unsigned)strlen(mqtt_pass));
             }
         }
 
-        token = strtok(NULL, "&");
+        token = strtok_r(NULL, "&", &saveptr);
     }
 
     // -------- SAUVEGARDE NVS --------
-
     nvs_handle_t handle;
     esp_err_t err;
 
-    // --- Compteurs ---
+    // --- Compteurs + noms ---
     err = nvs_open("counters", NVS_READWRITE, &handle);
     if (err == ESP_OK)
     {
@@ -248,7 +385,7 @@ static esp_err_t save_post_handler(httpd_req_t *req)
     }
     else
     {
-        ESP_LOGE("SAVE", "Failed to open NVS counters");
+        ESP_LOGE("SAVE", "Failed to open NVS counters: %s", esp_err_to_name(err));
     }
 
     // --- WiFi ---
@@ -257,13 +394,27 @@ static esp_err_t save_post_handler(httpd_req_t *req)
     {
         nvs_set_str(handle, "ssid", wifi_ssid);
         nvs_set_str(handle, "pass", wifi_pass);
-
         nvs_commit(handle);
         nvs_close(handle);
     }
     else
     {
-        ESP_LOGE("SAVE", "Failed to open NVS wifi");
+        ESP_LOGE("SAVE", "Failed to open NVS wifi: %s", esp_err_to_name(err));
+    }
+
+    // --- MQTT ---
+    err = nvs_open("mqtt", NVS_READWRITE, &handle);
+    if (err == ESP_OK)
+    {
+        nvs_set_str(handle, "mqtt_server", mqtt_Server);
+        nvs_set_str(handle, "mqtt_user",   mqtt_user);
+        nvs_set_str(handle, "mqtt_pass",   mqtt_pass);
+        nvs_commit(handle);
+        nvs_close(handle);
+    }
+    else
+    {
+        ESP_LOGE("SAVE", "Failed to open NVS mqtt: %s", esp_err_to_name(err));
     }
 
     httpd_resp_set_type(req, "text/html");
@@ -277,7 +428,6 @@ static esp_err_t save_post_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-
 static void start_webserver(void)
 {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
@@ -286,7 +436,7 @@ static void start_webserver(void)
     httpd_uri_t root = {
         .uri = "/",
         .method = HTTP_GET,
-        .handler = root_get_handler
+        .handler = config_get_handler
     };
 
     httpd_register_uri_handler(server, &root);

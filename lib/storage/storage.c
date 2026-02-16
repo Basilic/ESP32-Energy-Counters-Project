@@ -8,7 +8,7 @@
 static const char *TAG = "STORAGE";
 
 char wifi_ssid[32] = {0};
-char  wifi_pass[64] = {0};
+char wifi_pass[64] = {0};
 char mqtt_names[NB_COUNTERS][32] = {
     "compteur0",
     "compteur1",
@@ -17,6 +17,11 @@ char mqtt_names[NB_COUNTERS][32] = {
     "compteur4"
 };
 uint8_t global_mode_config = 1; // Mode de configuration (0 = normal, 1 = AP)    
+
+char mqtt_Server[64]= {"mqtt://192.168.1.1:1883"} ;   // URI du broker MQTT
+char mqtt_user[32]= {0}  ;               // Nom d'utilisateur MQTT
+char mqtt_pass[32] = {0};                // Password MQTT
+
 
 
 void nvs_init_and_load(void)
@@ -74,25 +79,65 @@ void nvs_init_and_load(void)
 
         ret = nvs_get_str(wifi_handle, "ssid", wifi_ssid, &len_ssid);
         if (ret == ESP_ERR_NVS_NOT_FOUND) {
-            wifi_ssid[0] = 'TEST_Wifi';
+            strcpy(wifi_ssid, "TEST_Wifi");
         } else if (ret != ESP_OK) {
             ESP_LOGW(TAG, "Erreur lecture NVS SSID");
-            wifi_ssid[0] = 'TEST_Wifi';
+            strcpy(wifi_ssid, "TEST_Wifi");
         }
 
         ret = nvs_get_str(wifi_handle, "pass", wifi_pass, &len_pass);
         if (ret == ESP_ERR_NVS_NOT_FOUND) {
-            wifi_pass[0] = 'TEST_Wifi';
+            strcpy(wifi_pass, "TEST_Wifi");
         } else if (ret != ESP_OK) {
             ESP_LOGW(TAG, "Erreur lecture NVS password");
-            wifi_pass[0] = 'Password';
+            strcpy(wifi_pass, "TEST_Wifi");
         }
 
         nvs_close(wifi_handle);
     } else {
         ESP_LOGW(TAG, "Impossible d'ouvrir NVS pour Wi-Fi");
-        wifi_ssid[0] = 'TEST_Wifi';
-        wifi_pass[0] = 'Password';
+        strcpy(wifi_ssid, "TEST_Wifi");
+        strcpy(wifi_pass, "TEST_Wifi");
+    }
+
+    // --- Chargement du MQTT ---
+    nvs_handle_t mqtt_handle;
+    ret = nvs_open("mqtt", NVS_READWRITE, &mqtt_handle);
+    if (ret == ESP_OK) {
+        size_t len_mqtt_serv = sizeof(mqtt_Server);
+        size_t len_mqtt_user = sizeof(mqtt_user);
+        size_t len_mqtt_pass = sizeof(mqtt_pass);
+
+        ret = nvs_get_str(mqtt_handle, "mqtt_server", mqtt_Server, &len_mqtt_serv);
+        if (ret == ESP_ERR_NVS_NOT_FOUND) {
+            strcpy(mqtt_Server, "mqtt://192.168.1.1:1883");
+        } else if (ret != ESP_OK) {
+            ESP_LOGW(TAG, "Erreur lecture NVS mqtt_server");
+            strcpy(mqtt_Server, "mqtt://192.168.1.1:1883");
+        }
+
+        ret = nvs_get_str(mqtt_handle, "mqtt_user", mqtt_user, &len_mqtt_user);
+        if (ret == ESP_ERR_NVS_NOT_FOUND) {
+            strcpy(mqtt_user, " ");
+        } else if (ret != ESP_OK) {
+            ESP_LOGW(TAG, "Erreur lecture NVS mqtt_user");
+            strcpy(mqtt_user, " ");
+        }
+        
+        ret = nvs_get_str(mqtt_handle, "mqtt_user", mqtt_user, &len_mqtt_pass);
+        if (ret == ESP_ERR_NVS_NOT_FOUND) {
+            strcpy(mqtt_pass, " ");
+        } else if (ret != ESP_OK) {
+            ESP_LOGW(TAG, "Erreur lecture NVS password");
+            strcpy(mqtt_pass, " ");
+        }
+        nvs_close(mqtt_handle);
+
+    } else {
+        ESP_LOGW(TAG, "Impossible d'ouvrir NVS pour MQTT");
+        strcpy(mqtt_Server,"mqtt://192.168.1.1:1883");
+        strcpy(mqtt_user, " ");
+        strcpy(mqtt_pass, " ");
     }
 
     // --- Chargement du mode configuration ---

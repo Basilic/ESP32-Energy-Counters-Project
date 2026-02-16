@@ -20,11 +20,12 @@
 #include <stdio.h>     // Pour les fonctions de formatage (ex: sprintf)
 #include "gpio_pulse.h"    // Pour accéder au tableau global counters
 #include "storage.h"       // Pour les fonctions de stockage NVS (sauvegarde des compteurs)
-
+#include "config.h"
 // Handle global du client MQTT
 static esp_mqtt_client_handle_t client;
 
 static const char *TAG = "MQTT_HANDLER";  //Identifiant des message log de la lib pour faciliter le debug      
+
 
 // Définition réelle (allocation mémoire)
 

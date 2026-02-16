@@ -56,6 +56,9 @@ static const gpio_num_t pulse_pins[NB_COUNTERS] = {
 extern uint8_t global_mode_config; // Mode de configuration (0 = normal, 1 = AP)
 extern uint32_t counters[NB_COUNTERS];
 extern char mqtt_names[NB_COUNTERS][32]; // taille adaptée à tes noms
-extern  char wifi_ssid[32];
-extern  char    wifi_pass[64];
+extern char wifi_ssid[32];
+extern char wifi_pass[64];
+extern char mqtt_Server[64];
+extern char mqtt_user[32];
+extern char mqtt_pass[32];
 #endif // CONFIG_H

@@ -14,29 +14,103 @@
 
 #include "mqtt_client.h" // ESP-IDF : fonctions MQTT client
 #include "mqtt.h"        // Header du module MQTT personnalisé
+#include "esp_log.h"        // ESP-IDF : fonctions de logging
+#include <string.h>       // Pour les fonctions de manipulation de chaînes (ex: strlen)
+#include <stdlib.h>      // Pour les fonctions de conversion (ex: atoi)
+#include <stdio.h>     // Pour les fonctions de formatage (ex: sprintf)
+#include "gpio_pulse.h"    // Pour accéder au tableau global counters
+#include "storage.h"       // Pour les fonctions de stockage NVS (sauvegarde des compteurs)
 
 // Handle global du client MQTT
 static esp_mqtt_client_handle_t client;
 
+static const char *TAG = "MQTT_HANDLER";  //Identifiant des message log de la lib pour faciliter le debug      
+
+// Définition réelle (allocation mémoire)
+
+
 /**
- * @brief Gestionnaire d'événements MQTT.
+ * @brief Traite les événements MQTT reçus par le client.
  *
  * Cette fonction est appelée automatiquement par l'ESP-IDF
- * pour tout événement lié au client MQTT (connexion, déconnexion, message reçu...).
+ * lorsqu’un événement MQTT survient (connexion, message reçu, erreur, etc.).
  *
- * @param handler_args : arguments passés lors de l'enregistrement de l'handler
- * @param base : base de l'événement (ESP_EVENT_BASE)
- * @param event_id : identifiant de l'événement
- * @param event_data : données associées à l'événement
+ * Ici, seuls les événements contenant des données (MQTT_EVENT_DATA)
+ * sont traités pour interpréter des commandes entrantes.
+ *
+ * @param handler_args Arguments utilisateur (non utilisés ici)
+ * @param base         Base de l'événement
+ * @param event_id     Identifiant de l'événement MQTT
+ * @param event_data   Pointeur vers la structure contenant les données MQTT
  */
+
 static void mqtt_event_handler(void *handler_args,
-                               esp_event_base_t base,
-                               int32_t event_id,
-                               void *event_data)
+                                esp_event_base_t base,
+                                int32_t event_id,
+                                void *event_data)
 {
-    // Optionnel : logs, debug, reconnexion automatique
-    // Pour le moment, nous n'utilisons pas ces événements
+    esp_mqtt_event_handle_t event = event_data;           // Conversion générique vers structure MQTT
+
+    if (event_id != MQTT_EVENT_DATA)                      // Ignore tous les événements sauf réception de données
+        return;                                           // Quitte si ce n’est pas un message entrant
+
+    char data[event->data_len + 1];                       // Buffer local pour stocker la donnée reçue (+1 pour '\0')
+    memcpy(data, event->data, event->data_len);           // Copie des données MQTT dans le buffer local
+    data[event->data_len] = '\0';                         // Ajout du caractère de fin de chaîne
+
+    ESP_LOGI(TAG, "Commande reçue : %s", data);           // Affiche la commande reçue en log
+
+    if (strncmp(data, "Force_Compteur[", 15) == 0)        // Vérifie si la commande est de type Force_Compteur
+    {
+        int index;                                        // Index du compteur à modifier
+        uint32_t value;                                   // Nouvelle valeur du compteur
+
+        if (sscanf(data, "Force_Compteur[%d]=%lu", &index, &value) == 2) // Extraction index + valeur
+        {
+            counters[index] = value;                       // Mise à jour du compteur en RAM
+            save_counter_to_nvs(index, value);             // Sauvegarde persistante en NVS
+
+            ESP_LOGI(TAG, "Compteur %d forcé à %lu", index, value); // Confirmation en log
+        }
+        else
+        {
+            ESP_LOGW(TAG, "Format invalide Force_Compteur"); // Log si la commande est mal formée
+        }
+    }
+    else if (strncmp(data, "Read_Compteur[", 14) == 0)     // Vérifie si la commande est de type lecture compteur
+    {
+        int index;                                         // Index du compteur demandé
+
+        if (sscanf(data, "Read_Compteur[%d]", &index) == 1) // Extraction de l’index
+        {
+            char topic[32];                                 // Buffer pour le topic MQTT
+            char payload[32];                               // Buffer pour la valeur envoyée
+
+            snprintf(topic, sizeof(topic), "compteur/%d", index); // Génère le topic dynamique
+            snprintf(payload, sizeof(payload), "%lu", counters[index]); // Convertit la valeur en texte
+
+            esp_mqtt_client_publish(client, topic, payload, 0, 1, 0); // Publication MQTT QoS 1
+
+            ESP_LOGI(TAG, "Compteur %d envoyé : %lu", index, counters[index]); // Confirmation en log
+        }
+        else
+        {
+            ESP_LOGW(TAG, "Format invalide Read_Compteur"); // Log si format incorrect
+        }
+    }
+    else if (strcmp(data, "Init_All") == 0)                // Vérifie si la commande est une réinitialisation globale
+    {
+        for (int i = 0; i < NB_COUNTERS; i++)              // Parcourt tous les compteurs
+        {
+            counters[i] = 0;                               // Remet le compteur à zéro en RAM
+            save_counter_to_nvs(i, 0);                      // Sauvegarde la valeur 0 en NVS
+        }
+
+        ESP_LOGI(TAG, "Tous les compteurs réinitialisés à 0"); // Confirmation en log
+    }
 }
+
+
 
 /**
  * @brief Initialise le client MQTT et se connecte au broker.
@@ -47,44 +121,45 @@ static void mqtt_event_handler(void *handler_args,
  *  - Enregistre l'event handler
  *  - Démarre le client
  */
+/**
+ * @brief Initialise et démarre le client MQTT.
+ *
+ * Configure les paramètres de connexion (broker, login, mot de passe),
+ * enregistre le gestionnaire d’événements,
+ * puis démarre la connexion au broker.
+ */
 void mqtt_init(void)
 {
-    esp_mqtt_client_config_t mqtt_cfg = {
-        .broker.address.uri = "MQTT_BROKER_URI",  // Adresse du broker MQTT
-        .credentials.username = "MQTT_USERNAME",               // Nom d'utilisateur MQTT
-        .credentials.authentication.password = "MQTT_PASSWORD", // Mot de passe MQTT
+    esp_mqtt_client_config_t mqtt_cfg = {                         // Structure de configuration MQTT
+        .broker.address.uri = "MQTT_BROKER_URI",                  // URI du broker MQTT
+        .credentials.username = "MQTT_USERNAME",                  // Nom d'utilisateur MQTT
+        .credentials.authentication.password = "MQTT_PASSWORD",   // Mot de passe MQTT
     };
 
-    // Initialise le client MQTT avec la configuration
-    client = esp_mqtt_client_init(&mqtt_cfg);
+    client = esp_mqtt_client_init(&mqtt_cfg);                     // Création du client MQTT
 
-    // Enregistre le gestionnaire d'événements pour tous les événements MQTT
-    esp_mqtt_client_register_event(client,
+    esp_mqtt_client_register_event(client,                        // Enregistrement du handler
                                    ESP_EVENT_ANY_ID,
                                    mqtt_event_handler,
                                    NULL);
 
-    // Démarre le client MQTT (connexion au broker)
-    esp_mqtt_client_start(client);
+    esp_mqtt_client_start(client);                                 // Démarrage de la connexion MQTT
 }
 
 /**
- * @brief Publie un message MQTT sur le topic spécifié.
+ * @brief Publie un message MQTT.
  *
- * @param topic   Topic MQTT (ex: "energie/compteurs")
- * @param payload Contenu du message (ex: JSON avec compteurs)
+ * Envoie un message vers le broker avec QoS 1.
  *
- * Cette fonction :
- *  - Utilise le client MQTT initialisé
- *  - QoS = 1 (au moins une fois)
- *  - Retain = 0 (le broker ne conserve pas le message)
+ * @param topic   Topic MQTT cible
+ * @param payload Contenu du message à transmettre
  */
 void mqtt_publish(const char *topic, const char *payload)
 {
-    esp_mqtt_client_publish(client,
-                            topic,
-                            payload,
-                            0,  // longueur du message, 0 = auto
-                            1,  // QoS 1 (assurance livraison)
-                            0); // Retain 0 (pas conservé par le broker)
+    esp_mqtt_client_publish(client,   // Client MQTT actif
+                            topic,    // Topic de destination
+                            payload,  // Message à envoyer
+                            0,        // Longueur auto-détectée
+                            1,        // QoS 1 (au moins une fois)
+                            0);       // Retain désactivé
 }

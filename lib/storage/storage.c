@@ -3,105 +3,146 @@
 #include "nvs.h"             // Fonctions NVS pour lire/écrire des valeurs
 #include "esp_log.h"         // Fonctions ESP_LOG pour debug
 #include "gpio_pulse.h"      // Pour accéder au tableau global counters
+#include "config.h"          // Pour NB_COUNTERS et global_mode_config  
 
-// Tag utilisé pour les messages de log ESP_LOG
 static const char *TAG = "STORAGE";
 
+char wifi_ssid[32] = {0};
+char  wifi_pass[64] = {0};
+char mqtt_names[NB_COUNTERS][32] = {
+    "compteur0",
+    "compteur1",
+    "compteur2",
+    "compteur3",
+    "compteur4"
+};
+uint8_t global_mode_config = 1; // Mode de configuration (0 = normal, 1 = AP)    
 
-/**
- * @brief Initialise la NVS (Non-Volatile Storage) et charge les compteurs.
- * 
- * Cette fonction :
- * 1. Initialise la NVS (efface si version incompatible ou pas de pages libres).
- * 2. Ouvre l'espace "counters" en lecture/écriture.
- * 3. Lit les valeurs de chaque compteur dans la NVS et les stocke dans counters[].
- * 4. Si aucune valeur n'est trouvée, initialise à 0.
- * 5. Ferme la NVS et affiche un log.
- */
+
 void nvs_init_and_load(void)
 {
-    // Initialise la NVS
-    esp_err_t ret = nvs_flash_init();  // Retourne ESP_OK si succès, sinon un code d'erreur
-
-    // Si pas de pages libres ou version NVS incompatible, on efface et on réinitialise
+    // --- Initialisation NVS ---
+    esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        ESP_ERROR_CHECK(nvs_flash_erase()); // Efface toute la NVS pour repartir propre
-        ret = nvs_flash_init();             // Réinitialisation après effacement
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        ret = nvs_flash_init();
     }
+    ESP_ERROR_CHECK(ret);
 
-    ESP_ERROR_CHECK(ret); // Vérifie que l'init finale est correcte, arrête le programme si erreur
+    // --- Chargement des compteurs ---
+    nvs_handle_t counters_handle;
+    ret = nvs_open("counters", NVS_READWRITE, &counters_handle);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Impossible d'ouvrir la NVS counters");
+    } else {
+        for (int i = 0; i < NB_COUNTERS; i++) {
+            char key[8];
+            snprintf(key, sizeof(key), "c%d", i);
 
-    // Ouvre l'espace "counters" en lecture/écriture
-    nvs_handle_t handle;
-    ret = nvs_open("counters", NVS_READWRITE, &handle); 
-    if (ret != ESP_OK) {  // Si ouverture échoue
-        ESP_LOGE(TAG, "Impossible d'ouvrir la NVS"); // Log l'erreur
-        return; // On ne peut pas continuer si on ne peut pas accéder à la NVS
-    }
+            uint32_t value = 0;
+            ret = nvs_get_u32(counters_handle, key, &value);
+            if (ret == ESP_OK) {
+                counters[i] = value;
+            } else if (ret == ESP_ERR_NVS_NOT_FOUND) {
+                counters[i] = 0;
+            } else {
+                ESP_LOGW(TAG, "Erreur lecture NVS compteur %d", i);
+                counters[i] = 0;
+            }
 
-    for (int i = 0; i < NB_COUNTERS; i++) {
-        char key[8];
-        snprintf(key, sizeof(key), "c%d", i);
-
-        uint32_t value = 0;
-        ret = nvs_get_u32(handle, key, &value); // Lecture du compteur depuis la NVS
-
-        if (ret == ESP_OK) {                     // Lecture réussie
-            counters[i] = value;                 // Stocke la valeur dans le tableau
-        } else if (ret == ESP_ERR_NVS_NOT_FOUND) { // La clé n'existe pas encore
-            counters[i] = 0;                     // Initialise à 0
-        } else {                                 // Autre erreur (ex: corruption NVS)
-            ESP_LOGW(TAG, "Erreur lecture NVS compteur %d", i); // Log warning
-            counters[i] = 0;                     // Sécurité : initialise à 0
+            // --- Lecture des noms MQTT ---
+            char mqtt_key[8];
+            snprintf(mqtt_key, sizeof(mqtt_key), "m%d", i);
+            size_t len = sizeof(mqtt_names[i]);
+            ret = nvs_get_str(counters_handle, mqtt_key, mqtt_names[i], &len);
+            if (ret == ESP_ERR_NVS_NOT_FOUND) {
+                mqtt_names[i][0] = ' '; // Vide si non trouvé
+            } else if (ret != ESP_OK) {
+                ESP_LOGW(TAG, "Erreur lecture NVS nom MQTT %d", i);
+                mqtt_names[i][0] = ' ';
+            }
         }
+        nvs_close(counters_handle);
     }
 
-    nvs_close(handle); // Ferme la NVS
-    ESP_LOGI(TAG, "Compteurs chargés depuis NVS");
+    // --- Chargement du Wi-Fi ---
+    nvs_handle_t wifi_handle;
+    ret = nvs_open("wifi", NVS_READWRITE, &wifi_handle);
+    if (ret == ESP_OK) {
+        size_t len_ssid = sizeof(wifi_ssid);
+        size_t len_pass = sizeof(wifi_pass);
+
+        ret = nvs_get_str(wifi_handle, "ssid", wifi_ssid, &len_ssid);
+        if (ret == ESP_ERR_NVS_NOT_FOUND) {
+            wifi_ssid[0] = 'TEST_Wifi';
+        } else if (ret != ESP_OK) {
+            ESP_LOGW(TAG, "Erreur lecture NVS SSID");
+            wifi_ssid[0] = 'TEST_Wifi';
+        }
+
+        ret = nvs_get_str(wifi_handle, "pass", wifi_pass, &len_pass);
+        if (ret == ESP_ERR_NVS_NOT_FOUND) {
+            wifi_pass[0] = 'TEST_Wifi';
+        } else if (ret != ESP_OK) {
+            ESP_LOGW(TAG, "Erreur lecture NVS password");
+            wifi_pass[0] = 'Password';
+        }
+
+        nvs_close(wifi_handle);
+    } else {
+        ESP_LOGW(TAG, "Impossible d'ouvrir NVS pour Wi-Fi");
+        wifi_ssid[0] = 'TEST_Wifi';
+        wifi_pass[0] = 'Password';
+    }
+
+    // --- Chargement du mode configuration ---
+    nvs_handle_t config_handle;
+    ret = nvs_open("config", NVS_READWRITE, &config_handle);
+    if (ret == ESP_OK) {
+        ret = nvs_get_u8(config_handle, "config_mode", &global_mode_config);
+        if (ret == ESP_OK) {
+            ESP_LOGI(TAG, "Mode configuration récupéré depuis NVS : %d", global_mode_config);
+        } else if (ret == ESP_ERR_NVS_NOT_FOUND) {
+            ESP_LOGI(TAG, "Mode configuration non trouvé dans NVS -> mode normal");
+            global_mode_config = 0;
+        } else {
+            ESP_LOGW(TAG, "Erreur lecture NVS mode_config, mode normal par défaut");
+            global_mode_config = 0;
+        }
+        nvs_close(config_handle);
+    } else {
+        ESP_LOGE(TAG, "Impossible d'ouvrir NVS pour lire mode config");
+        global_mode_config = 0;
+    }
+
+    ESP_LOGI(TAG, "Compteurs, noms MQTT et configuration Wi-Fi chargés depuis NVS");
 }
 
 
-
-/**
- * @brief Sauvegarde un compteur spécifique dans la NVS.
- * 
- * @param idx : index du compteur (0 à NB_COUNTERS-1)
- * @param value : valeur à sauvegarder
- *
- * Cette fonction :
- * 1. Ouvre la NVS "counters" en lecture/écriture.
- * 2. Écrit la valeur du compteur dans la NVS.
- * 3. Effectue un commit pour garantir l'écriture dans la flash.
- * 4. Ferme la NVS et affiche un log.
- */
 void save_counter_to_nvs(int idx, uint32_t value)
 {
     nvs_handle_t handle;     
-
-    // Ouvre l'espace "counters" en lecture/écriture
     esp_err_t ret = nvs_open("counters", NVS_READWRITE, &handle);
-    if (ret != ESP_OK) {  // Vérifie que l'ouverture a réussi
+    if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Impossible d'ouvrir la NVS pour écriture compteur %d", idx);
-        return; // Ne peut pas sauvegarder si l'ouverture échoue
+        return;
     }
 
     char key[8];
     snprintf(key, sizeof(key), "c%d", idx);
 
-    // Écrit la valeur du compteur dans la NVS
     ret = nvs_set_u32(handle, key, value); 
-    if (ret != ESP_OK) { // Vérifie que l'écriture a réussi
+    if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Impossible d'écrire compteur %d", idx);
         nvs_close(handle);
-        return; // Arrête la fonction si écriture impossible
+        return;
     }
 
-    // Commit pour sauvegarder définitivement dans la flash
     ret = nvs_commit(handle);
-    if (ret != ESP_OK) { // Vérifie que le commit a réussi
+    if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Erreur commit NVS compteur %d", idx);
     }
 
-    nvs_close(handle); // Ferme la NVS
+    nvs_close(handle);
     ESP_LOGI(TAG, "Compteur %d sauvegardé : %lu", idx, value);
 }

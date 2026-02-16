@@ -18,6 +18,8 @@
 
 #include <stdint.h>  // Pour uint32_t
 
+
+
 /**
  * @brief Initialise la NVS et charge les compteurs depuis la mémoire persistante.
  *
@@ -40,6 +42,7 @@ void nvs_init_and_load(void);
  *  - Écrit la valeur dans la NVS
  *  - Commit pour s'assurer que la valeur est persistée
  */
+
 void save_counter_to_nvs(int idx, uint32_t value);
 
 #endif // STORAGE_H

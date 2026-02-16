@@ -1,6 +1,6 @@
 #ifndef MQTT_H
 #define MQTT_H
-
+#include "config.h"
 /**
  * @file mqtt.h
  * @brief Header pour le module MQTT ESP32.
@@ -13,6 +13,8 @@
  * 1. Appeler mqtt_init() après la connexion Wi-Fi
  * 2. Appeler mqtt_publish(topic, payload) pour envoyer des messages (ex: JSON)
  */
+
+extern char mqtt_names[NB_COUNTERS][32]; // tableau de noms pour MQTT
 
 /**
  * @brief Initialise le client MQTT et démarre la connexion au broker.

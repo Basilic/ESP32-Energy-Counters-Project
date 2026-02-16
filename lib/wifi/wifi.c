@@ -1,101 +1,335 @@
 /**
  * @file wifi.c
- * @brief Gestion de la connexion Wi-Fi de l'ESP32 en mode station.
- *        Initialise le Wi-Fi, gère les événements de connexion/déconnexion
- *        et attend que l'ESP32 obtienne une IP avant de continuer.
+ * @brief Gestion Wi-Fi STA + Mode AP configuration avec serveur Web.
  */
 
-#include "esp_wifi.h"        // Fonctions de configuration et gestion Wi-Fi
-#include "esp_event.h"       // Gestion des événements (Wi-Fi, IP, etc.)
-#include "nvs_flash.h"       // Pour initialiser la NVS nécessaire au Wi-Fi
-#include "freertos/event_groups.h" // Pour utiliser les Event Groups FreeRTOS
-#include "config.h"          // Constantes globales (SSID, password, WIFI_CONNECTED_BIT)
+#include "esp_wifi.h"
+#include "esp_event.h"
+#include "nvs_flash.h"
+#include "freertos/event_groups.h"
+#include "config.h"
+#include "esp_log.h"
+#include "esp_http_server.h"
+#include "esp_system.h"
+#include "esp_netif.h"
+#include <string.h>
 
-/* Exemple mis dans config.h :
-#define WIFI_CONNECTED_BIT BIT0
-#define WIFI_SSID "TON_SSID"
-#define WIFI_PASS "TON_PASSWORD"
-*/
+//#define AP_SSID "ESP32_CONFIG"
+//#define AP_PASS "12345678"
 
-static EventGroupHandle_t wifi_event_group; // Groupe d'événements pour signaler l'état Wi-Fi
+static const char *TAG = "WIFI";
+
+static EventGroupHandle_t wifi_event_group;
+static httpd_handle_t server = NULL;
+
+//extern char mqtt_names[5][32];
+
+//char page[2048] = {0};
 
 
-/**
- * @brief Gestionnaire d'événements Wi-Fi et IP.
- *
- * Cette fonction est appelée automatiquement par l'ESP-IDF
- * lors de changements d'état Wi-Fi ou IP.
- *
- * @param arg : argument passé à l'handler (NULL ici)
- * @param event_base : type d'événement (WIFI_EVENT ou IP_EVENT)
- * @param event_id : identifiant de l'événement spécifique
- * @param event_data : données associées à l'événement
- */
+/* ========================= WIFI STA ========================= */
+
 static void wifi_event_handler(void *arg,
                                esp_event_base_t event_base,
                                int32_t event_id,
                                void *event_data)
 {
-    // Si la station démarre, on se connecte au Wi-Fi
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
-        esp_wifi_connect(); 
+        esp_wifi_connect();
     }
-    // Si déconnexion, on tente une reconnexion automatique
     else if (event_base == WIFI_EVENT &&
              event_id == WIFI_EVENT_STA_DISCONNECTED) {
         esp_wifi_connect();
     }
-    // Si l'ESP32 obtient une IP, on signale que la connexion est établie
     else if (event_base == IP_EVENT &&
              event_id == IP_EVENT_STA_GOT_IP) {
-        xEventGroupSetBits(wifi_event_group, WIFI_CONNECTED_BIT); // Met à 1 le bit "connecté"
+        xEventGroupSetBits(wifi_event_group, WIFI_CONNECTED_BIT);
     }
 }
 
-
-/**
- * @brief Initialise le Wi-Fi en mode station et attend la connexion.
- *
- * Étapes :
- * 1. Crée un Event Group pour signaler la connexion.
- * 2. Initialise le réseau et l'interface Wi-Fi par défaut.
- * 3. Configure le Wi-Fi (SSID, mot de passe).
- * 4. Démarre le Wi-Fi.
- * 5. Attend que la connexion soit établie avant de continuer.
- */
 void wifi_init(void)
 {
-    wifi_event_group = xEventGroupCreate(); // Crée le groupe d'événements Wi-Fi
+    wifi_event_group = xEventGroupCreate();
 
-    esp_netif_init();                 // Initialise la pile réseau
-    esp_event_loop_create_default();  // Crée la boucle d'événements par défaut
-    esp_netif_create_default_wifi_sta(); // Crée l'interface Wi-Fi station par défaut
+    esp_netif_init();
+    esp_event_loop_create_default();
+    esp_netif_create_default_wifi_sta();
 
-    // Configuration Wi-Fi par défaut
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    esp_wifi_init(&cfg);              // Initialise le Wi-Fi avec la config par défaut
+    esp_wifi_init(&cfg);
 
-    // Enregistre le gestionnaire d'événements pour tous les événements Wi-Fi
     esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL);
-    // Enregistre le gestionnaire d'événements pour l'événement IP obtenu
     esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler, NULL);
 
-    // Configuration de la station Wi-Fi (SSID et mot de passe)
-    wifi_config_t wifi_config = {
-        .sta = {
-            .ssid = WIFI_SSID,
-            .password = WIFI_PASS,
-        },
+    wifi_config_t wifi_config = {0};
+    strncpy((char *)wifi_config.sta.ssid, wifi_ssid, sizeof(wifi_config.sta.ssid));
+    strncpy((char *)wifi_config.sta.password, wifi_pass, sizeof(wifi_config.sta.password));
+    wifi_config.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
+
+
+    esp_wifi_set_mode(WIFI_MODE_STA);
+    esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
+    esp_wifi_start();
+
+    xEventGroupWaitBits(wifi_event_group,
+                        WIFI_CONNECTED_BIT,
+                        pdFALSE,
+                        pdTRUE,
+                        portMAX_DELAY);
+}
+
+
+/* ========================= WEB HANDLERS ========================= */
+
+static esp_err_t root_get_handler(httpd_req_t *req)
+{
+    httpd_resp_set_type(req, "text/html");
+
+    httpd_resp_sendstr_chunk(req,
+        "<!DOCTYPE html>"
+        "<html>"
+        "<head>"
+        "<meta charset='UTF-8'>"
+        "<title>ESP32 Configuration</title>"
+        "</head>"
+        "<body>"
+        "<h2>Configuration ESP32</h2>"
+        "<form method='POST' action='/save'>"
+        "<h3>WiFi</h3>"
+        "SSID:<br>"
+        "<input type='text' name='ssid' value='");
+
+    httpd_resp_sendstr_chunk(req, wifi_ssid);
+
+    httpd_resp_sendstr_chunk(req,
+        "'><br><br>"
+        "Mot de passe:<br>"
+        "<input type='password' name='pass' value='");
+
+    httpd_resp_sendstr_chunk(req, wifi_pass);
+
+    httpd_resp_sendstr_chunk(req,
+        "'><br><br>"
+        "<h3>Compteurs</h3>");
+
+    // ---- Boucle pour les 5 compteurs ----
+    for (int i = 0; i < NB_COUNTERS; i++)
+    {
+        char line[256];
+
+        snprintf(line, sizeof(line),
+            "Compteur %d:<br>"
+            "<input type='number' name='c%d' value='%lu'> "
+            "Nom:<input type='text' name='m%d' value='%s'>"
+            "<br><br>",
+            i + 1,
+            i, (unsigned long)counters[i],
+            i, mqtt_names[i]);
+
+        httpd_resp_sendstr_chunk(req, line);
+    }
+
+    httpd_resp_sendstr_chunk(req,
+        "<button type='submit'>Enregistrer</button>"
+        "</form>"
+        "</body>"
+        "</html>");
+
+    // IMPORTANT : fin de réponse
+    httpd_resp_sendstr_chunk(req, NULL);
+
+    return ESP_OK;
+}
+
+static esp_err_t save_post_handler(httpd_req_t *req)
+{
+    char buf[512];
+    int total_len = req->content_len;
+    int received = 0;
+    int ret;
+
+    if (total_len >= sizeof(buf)) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Payload too large");
+        return ESP_FAIL;
+    }
+
+    while (received < total_len) {
+        ret = httpd_req_recv(req, buf + received, total_len - received);
+        if (ret <= 0) {
+            return ESP_FAIL;
+        }
+        received += ret;
+    }
+
+    buf[received] = '\0';
+
+    ESP_LOGI("SAVE", "POST DATA: %s", buf);
+
+    // -------- PARSING ROBUSTE --------
+    char *token = strtok(buf, "&");
+
+    while (token != NULL)
+    {
+        char *eq = strchr(token, '=');
+        if (eq)
+        {
+            *eq = '\0';
+            char *key = token;
+            char *value = eq + 1;
+
+            // ---- Compteurs ----
+            for (int i = 0; i < NB_COUNTERS; i++)
+            {
+                char expected[8];
+                snprintf(expected, sizeof(expected), "c%d", i);
+
+                if (strcmp(key, expected) == 0)
+                {
+                    counters[i] = strtoul(value, NULL, 10);
+                    ESP_LOGI("SAVE", "Counter %d = %lu", i, counters[i]);
+                }
+            }
+
+            // ---- Noms MQTT ----
+            for (int i = 0; i < NB_COUNTERS; i++)
+            {
+                char expected[8];
+                snprintf(expected, sizeof(expected), "m%d", i);
+
+                if (strcmp(key, expected) == 0)
+                {
+                    strncpy(mqtt_names[i], value, sizeof(mqtt_names[i]) - 1);
+                    mqtt_names[i][sizeof(mqtt_names[i]) - 1] = '\0';
+                    ESP_LOGI("SAVE", "MQTT name %d = %s", i, mqtt_names[i]);
+                }
+            }
+
+            // ---- WiFi ----
+            if (strcmp(key, "ssid") == 0)
+            {
+                strncpy(wifi_ssid, value, sizeof(wifi_ssid) - 1);
+                wifi_ssid[sizeof(wifi_ssid) - 1] = '\0';
+                ESP_LOGI("SAVE", "SSID = %s", wifi_ssid);
+            }
+
+            if (strcmp(key, "pass") == 0)
+            {
+                strncpy(wifi_pass, value, sizeof(wifi_pass) - 1);
+                wifi_pass[sizeof(wifi_pass) - 1] = '\0';
+                ESP_LOGI("SAVE", "PASS updated");
+            }
+        }
+
+        token = strtok(NULL, "&");
+    }
+
+    // -------- SAUVEGARDE NVS --------
+
+    nvs_handle_t handle;
+    esp_err_t err;
+
+    // --- Compteurs ---
+    err = nvs_open("counters", NVS_READWRITE, &handle);
+    if (err == ESP_OK)
+    {
+        for (int i = 0; i < NB_COUNTERS; i++)
+        {
+            char key[8];
+
+            snprintf(key, sizeof(key), "c%d", i);
+            nvs_set_u32(handle, key, counters[i]);
+
+            snprintf(key, sizeof(key), "m%d", i);
+            nvs_set_str(handle, key, mqtt_names[i]);
+        }
+
+        nvs_commit(handle);
+        nvs_close(handle);
+    }
+    else
+    {
+        ESP_LOGE("SAVE", "Failed to open NVS counters");
+    }
+
+    // --- WiFi ---
+    err = nvs_open("wifi", NVS_READWRITE, &handle);
+    if (err == ESP_OK)
+    {
+        nvs_set_str(handle, "ssid", wifi_ssid);
+        nvs_set_str(handle, "pass", wifi_pass);
+
+        nvs_commit(handle);
+        nvs_close(handle);
+    }
+    else
+    {
+        ESP_LOGE("SAVE", "Failed to open NVS wifi");
+    }
+
+    httpd_resp_set_type(req, "text/html");
+    httpd_resp_sendstr(req,
+        "<html><body><h2>Configuration saved</h2>"
+        "<p>Rebooting...</p></body></html>");
+
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    esp_restart();
+
+    return ESP_OK;
+}
+
+
+static void start_webserver(void)
+{
+    httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+    httpd_start(&server, &config);
+
+    httpd_uri_t root = {
+        .uri = "/",
+        .method = HTTP_GET,
+        .handler = root_get_handler
     };
 
-    esp_wifi_set_mode(WIFI_MODE_STA);         // Met le Wi-Fi en mode station
-    esp_wifi_set_config(WIFI_IF_STA, &wifi_config); // Applique la configuration Wi-Fi
-    esp_wifi_start();                          // Démarre le Wi-Fi
+    httpd_register_uri_handler(server, &root);
 
-    // Attente bloquante jusqu'à ce que le Wi-Fi soit connecté (bit mis à 1 par l'event handler)
-    xEventGroupWaitBits(wifi_event_group,
-                        WIFI_CONNECTED_BIT,  // Bit à attendre
-                        pdFALSE,             // Ne pas effacer le bit après lecture
-                        pdTRUE,              // Attendre tous les bits (ici un seul)
-                        portMAX_DELAY);      // Attente infinie
+     httpd_uri_t save = {
+        .uri = "/save",
+        .method = HTTP_POST,
+        .handler = save_post_handler,
+        .user_ctx = NULL
+    };
+    httpd_register_uri_handler(server, &save);
+}
+
+/* ========================= MODE AP ========================= */
+
+void start_config_ap(void)
+{
+    ESP_LOGI(TAG, "Starting AP mode (open)...");
+    // --- INITIALISATION REQUISE ---
+    esp_netif_init();
+    esp_event_loop_create_default();
+    esp_netif_create_default_wifi_ap();
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+
+
+    // Configuration AP
+    wifi_config_t wifi_config = {
+        .ap = {
+            .ssid = AP_SSID,
+            .ssid_len = strlen(AP_SSID),
+            .channel = 1,
+            .password = "",             // open
+            .max_connection = 4,
+            .authmode = WIFI_AUTH_OPEN
+        }
+    };
+
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));          // Met en mode AP
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config)); // Applique la config
+    ESP_ERROR_CHECK(esp_wifi_start());                          // Démarre l’AP
+    vTaskDelay(pdMS_TO_TICKS(1500));
+    ESP_LOGI(TAG, "AP Started. SSID: %s (open)", AP_SSID);
+
+    start_webserver(); // Lance le serveur web de configuration
 }

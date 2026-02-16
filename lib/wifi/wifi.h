@@ -1,9 +1,4 @@
-#ifndef WIFI_H
-#define WIFI_H
 
-void wifi_init(void);
-
-#endif
 #ifndef WIFI_H
 #define WIFI_H
 
@@ -28,5 +23,5 @@ void wifi_init(void);
  * Bloque jusqu'à ce que l'ESP32 obtienne une adresse IP valide.
  */
 void wifi_init(void);
-
+void start_config_ap(void);
 #endif // WIFI_H

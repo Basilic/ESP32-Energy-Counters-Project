@@ -21,12 +21,11 @@
 #include "storage.h"                // Module de stockage NVS pour les compteurs
 #include "config.h"// Inclusion du header global de configuration (ex : DEBOUNCE_US, NB_COUNTERS)
 
+#include "esp_log.h"
 
-// Nombre de compteurs d'énergie
-#//define NB_COUNTERS 5
+static const char *TAG = "APP_MAIN";
 
-// Période de publication MQTT en millisecondes (ici toutes les 5 minutes)
-//#define MQTT_PUBLISH_PERIOD_MS (5 * 60 * 1000)
+//uint32_t counters[NB_COUNTERS] = {0};
 
 // Mutex pour protéger l'accès aux compteurs partagés
 SemaphoreHandle_t counter_mutex; 
@@ -60,6 +59,32 @@ void task_counter(void *pv)
         esp_task_wdt_reset();                 // Reset WDT pour indiquer que la tâche fonctionne
     }
 }
+
+static void task_config_ap(void *pvParameters)
+{
+    ESP_LOGW(TAG, "Starting CONFIG AP task...");
+global_mode_config = 0; // reset le flag pour ne pas relancer à chaque reboot
+    nvs_handle_t handle;
+    if (nvs_open("config", NVS_READWRITE, &handle) == ESP_OK) {
+        nvs_set_u8(handle, "config_mode", 0);
+        nvs_commit(handle);
+        nvs_close(handle);
+    }
+    start_config_ap();
+
+    /* 
+       On ne quitte pas la task.
+       Le serveur HTTP tourne en arrière-plan.
+       On peut juste laisser la task vivante.
+    */
+   
+    while (1)
+    {
+        vTaskDelay(pdMS_TO_TICKS(5000));
+    }
+}
+
+
 
 // ----------------------------------------------------------------------
 // ------------------- Tâche Wi-Fi et publication MQTT -----------------
@@ -105,22 +130,19 @@ void task_mqtt(void *pv)
  */
 void app_main(void)
 {
+    esp_log_level_set("*", ESP_LOG_INFO);
+    ESP_LOGI(TAG, "Main_APP start");
+
     counter_mutex = xSemaphoreCreateMutex(); // Crée le mutex pour protéger les compteurs
-
+    ESP_LOGI(TAG, "global_mode_config = %d", global_mode_config);
     nvs_init_and_load();                     // Initialise la NVS et charge les compteurs
+    ESP_LOGI(TAG, "NVS_Init Done");
+    ESP_LOGI(TAG, "global_mode_config = %d", global_mode_config);
+
     gpio_init_pulses();                      // Configure les GPIO pour les impulsions
+    ESP_LOGI(TAG, "GPIO_Init Done");
 
-    // Crée la tâche MQTT sur le Core 0
-    xTaskCreatePinnedToCore(
-        task_mqtt,        // Fonction de la tâche
-        "task_mqtt",      // Nom de la tâche
-        8192,             // Taille de la stack
-        NULL,             // Paramètre passé à la tâche
-        5,                // Priorité
-        NULL,             // Handle de tâche (pas utilisé)
-        0);               // Core 0
-
-    // Crée la tâche de comptage sur le Core 1
+   // Crée la tâche de comptage sur le Core 1
     xTaskCreatePinnedToCore(
         task_counter,
         "task_counter",
@@ -129,4 +151,35 @@ void app_main(void)
         10,
         NULL,
         1);               // Core 1
+    // Crée la tâche boot/config sur le Core 0  
+    xTaskCreatePinnedToCore(
+        task_boot_button,
+        "task_boot_button",
+        2048,
+        NULL,
+        4,
+        NULL,
+        0);
+    // Crée la tâche MQTT sur le Core 0
+    if(global_mode_config == 0) {
+        ESP_LOGI(TAG, "Mode normal : lancement tâche MQTT"); // Log mode normal 
+        xTaskCreatePinnedToCore(
+            task_mqtt,        // Fonction de la tâche
+            "task_mqtt",      // Nom de la tâche
+            8192,             // Taille de la stack
+            NULL,             // Paramètre passé à la tâche
+            5,                // Priorité
+            NULL,             // Handle de tâche (pas utilisé)
+            0);               // Core 0
+    }else{
+        ESP_LOGI(TAG, "Mode AP : lancement tâche CONFIG AP"); // Log mode AP 
+        xTaskCreatePinnedToCore(
+            task_config_ap,        // Fonction de la tâche
+            "task_config_ap",      // Nom de la tâche
+            8192,             // Taille de la stack
+            NULL,             // Paramètre passé à la tâche
+            5,                // Priorité
+            NULL,             // Handle de tâche (pas utilisé)
+            0);               // Core 0
+    }
 }

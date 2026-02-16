@@ -1,6 +1,6 @@
 # ESP32 Energy Counters Project
 
-> ⚠️ **Warning : Ce projet, dans sa version initiale, a été entièrement écrit et commenté par une IA. Il n’a jamais été testé sur le matériel. Utilisez-le à vos risques et périls !**
+> ⚠️ **Warning : Ce projet, est en cours de test. Utilisez-le à vos risques et périls !**
 
 ## Introduction
 

@@ -114,7 +114,7 @@ static esp_err_t config_get_handler(httpd_req_t *req)
 
     // Buffers échappés (tailles confortables)
     char esc_ssid[128], esc_pass[128];
-    char esc_mqserv[256], esc_mquser[128], esc_mqpass[128];
+    char esc_mqserv[256], esc_mquser[128], esc_mqpass[128],esc_mqport[128];
     char esc_name[128];
 
     html_escape(wifi_ssid,   esc_ssid,  sizeof esc_ssid);
@@ -122,6 +122,7 @@ static esp_err_t config_get_handler(httpd_req_t *req)
     html_escape(mqtt_Server, esc_mqserv,sizeof esc_mqserv);
     html_escape(mqtt_user,   esc_mquser,sizeof esc_mquser);
     html_escape(mqtt_pass,   esc_mqpass,sizeof esc_mqpass);
+    html_escape(mqtt_port,   esc_mqport,sizeof esc_mqport);
 
     // Macro pour checker les envois
     #define SEND(S) do {                              \
@@ -166,7 +167,7 @@ static esp_err_t config_get_handler(httpd_req_t *req)
     // Pass Wi-Fi
     SEND("<label>Mot de passe</label>");
     snprintf(line, sizeof line,
-             "<input type=\"password\" name=\"pass\" value=\"%s\"><br><br>",
+             "<input type=\"text\" name=\"pass\" value=\"%s\"><br><br>",
              esc_pass);
     SEND(line);
 
@@ -174,9 +175,14 @@ static esp_err_t config_get_handler(httpd_req_t *req)
     SEND("<h3>MQTT</h3>"
          "<label>Serveur MQTT</label>");
     snprintf(line, sizeof line,
-             "<input type=\"text\" name=\"mqtt_server\" "
-             "placeholder=\"mqtt://192.168.1.1:1883\" value=\"%s\"><br><br>",
-             esc_mqserv);
+        "<input type=\"text\" name=\"mqtt_server\" "
+        "placeholder=\"mqtt://192.168.1.1:1883\" value=\"%s\">:",
+         esc_mqserv);
+    SEND(line);
+    snprintf(line, sizeof line,
+        "<input type=\"text\" name=\"mqtt_port\" "
+        "placeholder=\"192.168.1.1\" value=\"%s\"><br><br>",
+         esc_mqport);
     SEND(line);
 
     SEND("<label>Utilisateur MQTT</label>");
@@ -356,6 +362,13 @@ static esp_err_t save_post_handler(httpd_req_t *req)
                 mqtt_pass[sizeof(mqtt_pass) - 1] = '\0';
                 ESP_LOGI("SAVE", "MQTT_PASS updated (len=%u)", (unsigned)strlen(mqtt_pass));
             }
+            // ---- MQTT Port ----
+            else if (strcmp(key, "mqtt_port") == 0)
+            {
+                strncpy(mqtt_port, decoded, sizeof(mqtt_port) - 1);
+                mqtt_port[sizeof(mqtt_port) - 1] = '\0';
+                ESP_LOGI("SAVE", "MQTT_PORT updated (len=%u)", (unsigned)strlen(mqtt_port));
+            }
         }
 
         token = strtok_r(NULL, "&", &saveptr);
@@ -409,6 +422,7 @@ static esp_err_t save_post_handler(httpd_req_t *req)
         nvs_set_str(handle, "mqtt_server", mqtt_Server);
         nvs_set_str(handle, "mqtt_user",   mqtt_user);
         nvs_set_str(handle, "mqtt_pass",   mqtt_pass);
+        nvs_set_str(handle, "mqtt_port",   mqtt_port);
         nvs_commit(handle);
         nvs_close(handle);
     }

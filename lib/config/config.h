@@ -39,7 +39,7 @@
 #define BOOT_BUTTON_GPIO GPIO_NUM_0
 // --------------------- Section timing et debounce ---------------------
 #define DEBOUNCE_US 20000               // Durée de l'anti-rebond pour les entrées GPIO (20 ms)
-#define MQTT_PUBLISH_PERIOD_MS (5 * 60 * 1000)  // Période de publication MQTT en millisecondes (5 minutes)
+#define MQTT_PUBLISH_PERIOD_MS (15 * 1000)//(5 * 60 * 1000)  // Période de publication MQTT en millisecondes (5 minutes)
 
 // --------------------- Section compteurs ---------------------
 #define NB_COUNTERS 5   // Nombre de compteurs d'impulsions

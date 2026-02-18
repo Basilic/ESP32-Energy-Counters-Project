@@ -41,7 +41,7 @@ SemaphoreHandle_t counter_mutex;
  */
 void task_counter(void *pv)
 {
-    esp_task_wdt_add(NULL);                 // Ajoute cette tâche au WDT pour surveillance
+    //esp_task_wdt_add(NULL);                 // Ajoute cette tâche au WDT pour surveillance
     uint32_t last_saved[NB_COUNTERS] = {0}; // Stocke la dernière valeur sauvegardée pour chaque compteur
 
     while (1) {
@@ -56,7 +56,7 @@ void task_counter(void *pv)
             }
         }
         xSemaphoreGive(counter_mutex);        // Libère le mutex
-        esp_task_wdt_reset();                 // Reset WDT pour indiquer que la tâche fonctionne
+        //esp_task_wdt_reset();                 // Reset WDT pour indiquer que la tâche fonctionne
     }
 }
 
@@ -98,27 +98,31 @@ global_mode_config = 0; // reset le flag pour ne pas relancer à chaque reboot
 void task_mqtt(void *pv)
 {
     wifi_init();  // Initialise le Wi-Fi et attend la connexion
+    ESP_LOGI(TAG, "Wi-Fi connecté, initialisation MQTT...");
     mqtt_init();  // Initialise le client MQTT
+    ESP_LOGI(TAG, "MQTT initialisé, démarrage de la publication périodique...");
+    char payload[256];           // Buffer pour le message JSON
 
-    char payload[128];           // Buffer pour le message JSON
-
-    esp_task_wdt_add(NULL);      // Ajoute cette tâche au WDT
+    //esp_task_wdt_add(NULL);      // Ajoute cette tâche au WDT
 
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(MQTT_PUBLISH_PERIOD_MS)); // Attente de 5 minutes
 
         xSemaphoreTake(counter_mutex, portMAX_DELAY);     // Accès exclusif aux compteurs
 
-        // Prépare la payload JSON avec les valeurs actuelles
-        snprintf(payload, sizeof(payload),
-            "{\"c0\":%lu,\"c1\":%lu,\"c2\":%lu,\"c3\":%lu,\"c4\":%lu}",
-            counters[0], counters[1], counters[2], counters[3], counters[4]);
 
-        xSemaphoreGive(counter_mutex);                     // Libère le mutex
-
-        mqtt_publish("energie/compteurs", payload);       // Publie sur le topic MQTT
-        esp_task_wdt_reset();                              // Reset WDT pour indiquer que la tâche fonctionne
+    // Prépare la payload JSON avec les valeurs actuelles
+        for (int i = 0; i < NB_COUNTERS; i++) {
+            char topic[64];
+            sprintf(topic, "energie/%s", mqtt_names[i]);
+            snprintf(payload, sizeof(payload),
+                "%lu",
+                counters[i]);
+            mqtt_publish(topic, payload); // Publie sur le topic MQTT
+        }
+        xSemaphoreGive(counter_mutex);  // Libère le mutex
     }
+
 }
 
 // ----------------------------------------------------------------------

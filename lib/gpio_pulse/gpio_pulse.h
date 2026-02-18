@@ -22,11 +22,11 @@
 
 #include <stdint.h>     // Pour uint32_t
 #include "esp_timer.h"  // Pour les timers de validation différée
-
+#include "config.h"     // Pour les définitions de configuration (pins, NB_COUNTERS, DEBOUNCE_US)
 // ---------------------------------------------------------------------------
 // Nombre de compteurs utilisés
 // ---------------------------------------------------------------------------
-#define NB_COUNTERS 5
+//#define NB_COUNTERS 5
 
 // ---------------------------------------------------------------------------
 // Tableau global des compteurs

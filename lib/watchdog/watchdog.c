@@ -12,7 +12,6 @@
 
 static const char *TAG = "WDT"; // Tag utilisé pour les logs ESP_LOG
 
-
 /**
  * @brief Initialise le task watchdog pour l'ESP32.
  *
@@ -32,7 +31,6 @@ void watchdog_init(void)
     ESP_LOGI(TAG, "Watchdog initialisé (%ds)", WDT_TIMEOUT_S); // Log info
 }
 
-
 /**
  * @brief Ajoute la tâche courante à la liste des tâches surveillées par le watchdog.
  *
@@ -42,7 +40,6 @@ void watchdog_add_task(void)
 {
     esp_task_wdt_add(NULL); // NULL = tâche courante
 }
-
 
 /**
  * @brief Réinitialise le compteur du watchdog pour la tâche courante.

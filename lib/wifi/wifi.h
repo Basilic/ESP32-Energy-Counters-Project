@@ -23,5 +23,10 @@
  * Bloque jusqu'à ce que l'ESP32 obtienne une adresse IP valide.
  */
 void wifi_init(void);
+/**
+ * @brief Démarre le mode AP (point d'accès) pour la configuration.
+ *
+ * Cette fonction configure l'ESP32 en mode AP ouvert et démarre un serveur web pour permettre la configuration des paramètres de connexion Wi-Fi, MQTT et compteurs.
+ */
 void start_config_ap(void);
 #endif // WIFI_H

@@ -1,15 +1,14 @@
 /**
  * @file gpio_pulse.c
- * @brief Gestion des impulsions GPIO avec debounce par temporisation.
+ * @brief Gestion des impulsions GPIO avec débouncing par temporisation.
  *
- * Ce module :
- *  - Configure plusieurs GPIO en entrée interruption (front montant)
- *  - Lance un timer logiciel pour valider la stabilité du niveau (debounce)
- *  - Incrémente un compteur si le signal est toujours HIGH après temporisation
- *  - Envoie les impulsions validées vers une tâche de debug via une queue
+ * Ce module gère la configuration des GPIO en entrée interruption (front montant),
+ * lance un timer logiciel pour valider la stabilité du niveau (débouncing) et incrémente
+ * un compteur si le signal est toujours HIGH après la temporisation. Les impulsions validées
+ * sont ensuite envoyées vers une tâche de debug via une file.
  *
  * Architecture :
- *  GPIO ISR  →  Timer debounce  →  Validation  →  Queue  →  Task debug
+ *  GPIO ISR → Timer debounce → Validation → File → Tâche debug
  */
 
 #include "freertos/FreeRTOS.h"      // API FreeRTOS
@@ -24,76 +23,79 @@
 #include "nvs.h"             // Fonctions NVS pour lire/écrire des valeurs
 
 volatile uint32_t isr_count = 0;    // Compteur debug du nombre d'interruptions reçues
-
 static const char *TAG = "GPIO_PULSE"; // Identifiant de log du module
-
 static QueueHandle_t pulse_queue;   // Queue pour transmettre les index validés à la task debug
-
 uint32_t counters[NB_COUNTERS] = {0}; // Tableau global des compteurs d’impulsions
-
 static pulse_ctx_t pulse_ctx[NB_COUNTERS]; // Contexte associé à chaque GPIO (index + timer)
 
 
-
+/**
+ * @brief Tâche FreeRTOS pour gérer le bouton de démarrage (BOOT).
+ *
+ * Cette tâche configure un GPIO en entrée interruption et détecte les appuis longs sur ce bouton.
+ * Si l'appui est prolongé, elle active le mode de configuration et redémarre le système.
+ *
+ * @param pv Paramètre non utilisé
+ */
 void task_boot_button(void *pv)
 {
     gpio_config_t io_conf = {
-        .pin_bit_mask = 1ULL << BOOT_BUTTON_GPIO,
-        .mode = GPIO_MODE_INPUT,
-        .pull_up_en = GPIO_PULLUP_ENABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE
-    };
+        .pin_bit_mask = 1ULL << BOOT_BUTTON_GPIO, // Masque pour le GPIO du bouton
+        .mode = GPIO_MODE_INPUT, // Configure en entrée
+        .pull_up_en = GPIO_PULLUP_ENABLE, // Active la résistance de pull-up interne
+        .pull_down_en = GPIO_PULLDOWN_DISABLE, // Désactive la résistance de pull-down
+        .intr_type = GPIO_INTR_DISABLE // Pas d'interruption nécessaire pour ce bouton
+    }; // Configure le GPIO du bouton en entrée avec pull-up et sans interruption
 
-    gpio_config(&io_conf);
+    gpio_config(&io_conf); // Applique la configuration du GPIO
 
-    int64_t press_start_time = 0;
-    bool pressed = false;
-    bool reboot_triggered = false;
+    int64_t press_start_time = 0; // Variable pour stocker le temps de début d'appui sur le bouton
+    bool pressed = false; // Indique si le bouton est actuellement considéré comme appuyé
+    bool reboot_triggered = false; // Indique si le reboot a déjà été déclenché pour éviter les redémarrages multiples
 
-    ESP_LOGI(TAG, "Boot button task started");
+    ESP_LOGI(TAG, "Boot button task started"); // Log de démarrage de la tâche
 
     while (1)
     {
-        int level = gpio_get_level(BOOT_BUTTON_GPIO);
+        int level = gpio_get_level(BOOT_BUTTON_GPIO); // Lit le niveau du GPIO du bouton (0 = appuyé, 1 = relâché)
 
-        if (level == 0) // Bouton appuyé (LOW)
+        if (level == 0) // Bouton appuyé (LOW) // Logique inverse à cause du pull-up
         {
-            if (!pressed)
+            if (!pressed) // Si ce n'était pas déjà considéré comme appuyé, on enregistre le temps de début d'appui
             {
-                pressed = true;
-                press_start_time = esp_timer_get_time();
-                reboot_triggered = false;
-                ESP_LOGI(TAG, "BOOT pressed");
+                pressed = true; // Marque le bouton comme appuyé
+                press_start_time = esp_timer_get_time(); // Enregistre le temps actuel en microsecondes
+                reboot_triggered = false; // Reset du flag de reboot pour permettre un nouveau reboot si le bouton est maintenu à nouveau
+                ESP_LOGI(TAG, "BOOT pressed"); // Log de détection d'appui sur le bouton
             }
-            else if (!reboot_triggered)
+            else if (!reboot_triggered) // Si le bouton est toujours considéré comme appuyé et que le reboot n'a pas encore été déclenché, on vérifie la durée d'appui
             {
-                int64_t now = esp_timer_get_time();
-                int64_t elapsed_ms = (now - press_start_time) / 1000;
+                int64_t now = esp_timer_get_time(); // Obtient le temps actuel en microsecondes
+                int64_t elapsed_ms = (now - press_start_time) / 1000; // Calcule le temps écoulé en millisecondes
 
-                if (elapsed_ms >= BOOT_LONG_PRESS_TIME_MS)
+                if (elapsed_ms >= BOOT_LONG_PRESS_TIME_MS) // Si le temps d'appui dépasse le seuil défini pour un appui long, on déclenche le reboot
                 {
-                    reboot_triggered = true;
+                    reboot_triggered = true; // Marque le reboot comme déclenché pour éviter les redémarrages multiples
 
-                    ESP_LOGW(TAG, "BOOT LONG PRESS detected -> REBOOT");
-                    nvs_handle_t handle;
-                    esp_err_t ret = nvs_open("config", NVS_READWRITE, &handle);
-                    if (ret == ESP_OK) {
+                    ESP_LOGW(TAG, "BOOT LONG PRESS detected -> REBOOT"); // Log de détection d'un appui long sur le bouton
+                    nvs_handle_t handle; // Handle pour accéder à la NVS de configuration
+                    esp_err_t ret = nvs_open("config", NVS_READWRITE, &handle); // Ouvre la NVS "config" en mode lecture/écriture
+                    if (ret == ESP_OK) { // Si l'ouverture réussit, on écrit le flag de mode configuration dans la NVS pour indiquer au système de démarrer en mode configuration après le reboot
                         uint8_t flag = 1; // 1 = mode configuration activé
-                        ret = nvs_set_u8(handle, "config_mode", flag);
-                        nvs_commit(handle);
-                        nvs_close(handle);
-                        ESP_LOGI(TAG, "Config mode flag saved to NVS");
-                    } else {
-                        ESP_LOGE(TAG, "Impossible d'ouvrir NVS pour flag config mode");
+                        ret = nvs_set_u8(handle, "config_mode", flag); // Tente d'écrire le flag de mode configuration dans la NVS
+                        nvs_commit(handle); // Commite les modifications pour s'assurer que la valeur est bien sauvegardée
+                        nvs_close(handle); // Ferme la NVS après écriture
+                        ESP_LOGI(TAG, "Config mode flag saved to NVS"); // Log de succès de sauvegarde du flag de mode configuration
+                    } else { // Si l'ouverture échoue, on log une erreur
+                        ESP_LOGE(TAG, "Impossible d'ouvrir NVS pour flag config mode"); // Log d'erreur
                     }
                     vTaskDelay(pdMS_TO_TICKS(200));  // petit délai pour flush logs
-                    while(gpio_get_level(BOOT_BUTTON_GPIO)==0){}
+                    while(gpio_get_level(BOOT_BUTTON_GPIO)==0){} // Attente que le bouton soit relâché pour éviter de redémarrer en boucle si le bouton est maintenu
                     esp_restart();                   // 🔥 reboot propre ESP32
                 }
             }
         }
-        else
+        else // Bouton relâché (HIGH)
         {
             pressed = false;  // Reset si relâché
         }
@@ -103,15 +105,13 @@ void task_boot_button(void *pv)
 }
 
 /**
- * @brief Callback du timer de debounce.
+ * @brief Callback du timer de débouncing.
  *
- * Cette fonction est appelée après DEBOUNCE_US microsecondes
- * suivant un front montant détecté sur un GPIO.
+ * Cette fonction est appelée après une temporisation définie (DEBOUNCE_US) suite à un front montant détecté sur un GPIO.
+ * Elle vérifie que le signal reste HIGH et, si c'est le cas, incrémente le compteur correspondant et envoie l'index
+ * vers la tâche de debug.
  *
- * Elle vérifie que le signal est toujours à l’état HIGH.
- * Si oui, l’impulsion est validée et le compteur correspondant est incrémenté.
- *
- * @param arg Pointeur vers la structure pulse_ctx_t associée au GPIO
+ * @param arg Pointeur vers la structure pulse_ctx_t associée au GPIO concerné
  */
 static void verify_stability_callback(void *arg)
 {
@@ -129,13 +129,10 @@ static void verify_stability_callback(void *arg)
     }
 }
 
-
-
 /**
- * @brief Tâche FreeRTOS de debug des impulsions validées.
+ * @brief Tâche FreeRTOS pour afficher les impulsions validées.
  *
- * Cette tâche attend en permanence des index provenant de la queue.
- * Lorsqu’un index est reçu, elle affiche la valeur du compteur associé.
+ * Cette tâche attend en permanence des index provenant d'une file et affiche la valeur du compteur associé.
  *
  * @param pv Paramètre non utilisé
  */
@@ -157,8 +154,6 @@ static void pulse_debug_task(void *pv)
     }
 }
 
-
-
 /**
  * @brief ISR déclenchée sur front montant GPIO.
  *
@@ -179,8 +174,6 @@ static void IRAM_ATTR pulse_isr(void *arg)
 
     esp_timer_start_once(ctx->verify_timer, DEBOUNCE_US); // Lance le timer debounce
 }
-
-
 
 /**
  * @brief Initialise les GPIO, timers et interruptions.

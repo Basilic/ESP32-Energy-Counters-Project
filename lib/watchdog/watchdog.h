@@ -1,14 +1,6 @@
 #ifndef WATCHDOG_H
 #define WATCHDOG_H
 
-void watchdog_init(void);
-void watchdog_add_task(void);
-void watchdog_reset(void);
-
-#endif
-#ifndef WATCHDOG_H
-#define WATCHDOG_H
-
 /**
  * @file watchdog.h
  * @brief Header pour le module Watchdog Timer (WDT) ESP32.

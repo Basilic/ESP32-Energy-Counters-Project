@@ -18,15 +18,13 @@
 
 #define DEVICE_NAME "ESP32_Counter" // Nom de l'appareil pour identification MQTT ou logs
 #include "driver/gpio.h" // Inclusion des fonctions de gestion des GPIO fournies par ESP-IDF
-#define ONE_MESSAGE_PER_COUNTER // 1 message MQTT par compteur à chaque publication périodique    
+
 // --------------------- Section Wi-Fi ---------------------
-//#define WIFI_SSID "TON_SSID"       // Nom du réseau Wi-Fi
-//#define WIFI_PASS "TON_PASSWORD"   // Mot de passe du réseau Wi-Fi
 #define WIFI_CONNECTED_BIT BIT0    // Bit utilisé dans le EventGroup pour signaler la connexion Wi-Fi
 
 // --------------------- Section Wi-Fi CONFIG ---------------------
 #define AP_SSID "COUNTER_CONFIG"
-#define AP_PASS "123456789"
+//#define AP_PASS "123456789"
 
 // Section MQTT dans config.h
 //#define MQTT_BROKER_URI  "mqtt://192.168.1.10"  // Adresse du broker MQTT
@@ -55,12 +53,12 @@ static const gpio_num_t pulse_pins[NB_COUNTERS] = {
 };
 
 extern uint8_t global_mode_config; // Mode de configuration (0 = normal, 1 = AP)
-extern uint32_t counters[NB_COUNTERS];
+extern uint32_t counters[NB_COUNTERS]; // Tableau global des compteurs d'impulsions, accessible depuis tous les modules pour lecture/écriture des valeurs de comptage
 extern char mqtt_names[NB_COUNTERS][32]; // taille adaptée à tes noms
-extern char wifi_ssid[32];
-extern char wifi_pass[64];
-extern char mqtt_Server[64];
-extern char mqtt_user[32];
-extern char mqtt_pass[32];
-extern char mqtt_port[8];
+extern char wifi_ssid[32]; // SSID Wi-Fi, accessible globalement pour la configuration et la connexion
+extern char wifi_pass[64]; // Mot de passe Wi-Fi, accessible globalement pour la configuration et la connexion
+extern char mqtt_Server[64]; // URI du broker MQTT, accessible globalement pour la configuration et la connexion
+extern char mqtt_user[32]; // Nom d'utilisateur MQTT, accessible globalement pour la configuration et la connexion
+extern char mqtt_pass[32]; // Mot de passe MQTT, accessible globalement pour la configuration et la connexion
+extern char mqtt_port[8]; // Port du server MQTT, accessible globalement pour la configuration et la connexion
 #endif // CONFIG_H

@@ -18,8 +18,6 @@
 
 #include <stdint.h>  // Pour uint32_t
 
-
-
 /**
  * @brief Initialise la NVS et charge les compteurs depuis la mémoire persistante.
  *

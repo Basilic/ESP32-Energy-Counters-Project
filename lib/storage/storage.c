@@ -133,7 +133,7 @@ void nvs_init_and_load(void)
             strcpy(mqtt_user, " ");
         }
         
-        ret = nvs_get_str(mqtt_handle, "mqtt_user", mqtt_user, &len_mqtt_pass);
+        ret = nvs_get_str(mqtt_handle, "mqtt_pass", mqtt_pass, &len_mqtt_pass);
         if (ret == ESP_ERR_NVS_NOT_FOUND) {
             strcpy(mqtt_pass, " ");
         } else if (ret != ESP_OK) {

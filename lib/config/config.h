@@ -16,8 +16,9 @@
  *  - Garantit que toutes les tâches et modules utilisent les mêmes valeurs
  */
 
+#define DEVICE_NAME "ESP32_Counter" // Nom de l'appareil pour identification MQTT ou logs
 #include "driver/gpio.h" // Inclusion des fonctions de gestion des GPIO fournies par ESP-IDF
-
+#define ONE_MESSAGE_PER_COUNTER // 1 message MQTT par compteur à chaque publication périodique    
 // --------------------- Section Wi-Fi ---------------------
 //#define WIFI_SSID "TON_SSID"       // Nom du réseau Wi-Fi
 //#define WIFI_PASS "TON_PASSWORD"   // Mot de passe du réseau Wi-Fi

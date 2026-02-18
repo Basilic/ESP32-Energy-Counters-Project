@@ -33,5 +33,6 @@ void mqtt_init(void);
  * La publication se fait avec QoS = 1 (au moins une fois) et Retain = 0 (pas conservé par le broker)
  */
 void mqtt_publish(const char *topic, const char *payload);
+void mqtt_publish_config(const char *topic, const char *payload); // Publication de la configuration MQTT (ex: noms des compteurs)   
 
 #endif // MQTT_H

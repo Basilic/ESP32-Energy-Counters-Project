@@ -54,7 +54,7 @@ static void wifi_event_handler(void *arg,
 void wifi_init(void)
 {
     wifi_event_group = xEventGroupCreate();
-
+    ESP_LOGI(TAG, "Initialisation du Wi-Fi en mode station...");
     esp_netif_init();
     esp_event_loop_create_default();
     esp_netif_create_default_wifi_sta();
@@ -69,17 +69,20 @@ void wifi_init(void)
     strncpy((char *)wifi_config.sta.ssid, wifi_ssid, sizeof(wifi_config.sta.ssid));
     strncpy((char *)wifi_config.sta.password, wifi_pass, sizeof(wifi_config.sta.password));
     wifi_config.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
-
+    ESP_LOGI(TAG, "Configuration Wi-Fi : SSID=%s Pass=%s", wifi_ssid, wifi_pass); // Log de la configuration utilisée
 
     esp_wifi_set_mode(WIFI_MODE_STA);
     esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
+    ESP_LOGI(TAG, "Démarrage du Wi-Fi...");
     esp_wifi_start();
+    ESP_LOGI(TAG, "Attente de la connexion Wi-Fi...");
 
     xEventGroupWaitBits(wifi_event_group,
                         WIFI_CONNECTED_BIT,
                         pdFALSE,
                         pdTRUE,
                         portMAX_DELAY);
+    ESP_LOGI(TAG, "Wi-Fi connecté avec succès !");
 }
 
 
@@ -176,12 +179,12 @@ static esp_err_t config_get_handler(httpd_req_t *req)
          "<label>Serveur MQTT</label>");
     snprintf(line, sizeof line,
         "<input type=\"text\" name=\"mqtt_server\" "
-        "placeholder=\"mqtt://192.168.1.1:1883\" value=\"%s\">:",
+        "placeholder=\"mqtt://192.168.1.1\" value=\"%s\">:",
          esc_mqserv);
     SEND(line);
     snprintf(line, sizeof line,
         "<input type=\"text\" name=\"mqtt_port\" "
-        "placeholder=\"192.168.1.1\" value=\"%s\"><br><br>",
+        "placeholder=\"1883\" value=\"%s\"><br><br>",
          esc_mqport);
     SEND(line);
 
@@ -193,7 +196,7 @@ static esp_err_t config_get_handler(httpd_req_t *req)
 
     SEND("<label>Mot de passe MQTT</label>");
     snprintf(line, sizeof line,
-             "<input type=\"password\" name=\"mqtt_pass\" value=\"%s\"><br><br>",
+             "<input type=\"text\" name=\"mqtt_pass\" value=\"%s\"><br><br>",
              esc_mqpass);
     SEND(line);
 
